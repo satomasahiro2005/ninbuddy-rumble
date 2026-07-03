@@ -1,30 +1,16 @@
-# Canonical (debug-free) Joy-Con L rumble bridge for NXBT.
-#
-# This class is injected into nxbt's controller/server.py, replacing the
-# RawJoyConRumbleBridge placeholder. It also requires, at the top of
-# server.py:
-#     from threading import Thread, Lock
-# and the ControllerServer must call, in its report loop:
-#     self.rumble = RawJoyConRumbleBridge(self.logger)   # in __init__
-#     self.rumble.handle_switch_report(reply)            # each mainloop iter
-#     self.rumble.tick()                                 # each mainloop iter
-#     self.rumble.close()                                # on shutdown
-#
-# See NOTES.md for the full findings. Apply with apply_patch.py.
-
 class RawJoyConRumbleBridge():
-    """Forwards Switch rumble output reports to a real Joy-Con L over raw
-    L2CAP. All Bluetooth I/O to the Joy-Con runs in a dedicated worker thread
-    so the NXBT realtime mainloop (which talks to the Switch) is never blocked
-    by connects, reconnects, or a flaky Joy-Con link.
+    """Forwards Switch rumble to a real Joy-Con L over raw L2CAP, from a worker
+    thread so the NXBT<->Switch mainloop never blocks.
 
-    NOTE: on a single Bluetooth adapter this cannot run at the same time as the
-    NXBT<->Switch link -- an active Joy-Con ACL starves the Switch's inbound
-    rumble reports (see NOTES.md). Intended for use with a second adapter
-    (bind the sockets to hci1); left here as the working, proven bridge."""
+    IMPORTANT: this only activates when a SECOND Bluetooth adapter (hci1) is
+    present, and binds the Joy-Con sockets to it. On a single adapter, holding
+    the Joy-Con link (Pi as master) starves the Switch's inbound rumble reports
+    -- confirmed by measurement; role-switch and sniff mode do not fix it (the
+    Switch refuses to stay a slave, so the Pi is stuck bridging two piconets).
+    With no hci1 the bridge stays completely inert and never touches hci0, so
+    NinBuddy runs as a normal, smooth controller. See joycon-rumble/NOTES.md."""
 
     _NEUTRAL = bytes([0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40])
-    # A motor half is "silent" when zeroed or at the neutral carrier.
     _SILENT = (bytes([0x00, 0x00, 0x00, 0x00]), bytes([0x00, 0x01, 0x40, 0x40]))
     _JOYCON_L = "BC:74:4B:8B:98:82"
     _SOL_BLUETOOTH = 274
@@ -42,14 +28,32 @@ class RawJoyConRumbleBridge():
         self._ctrl = None
         self._intr = None
         self._timer = 0
+        self._hci1 = None
         self._worker = Thread(target=self._run, daemon=True)
         self._worker.start()
 
+    def _log(self, msg):
+        try:
+            with open("/tmp/rumble_debug.log", "a") as f:
+                f.write("%.3f %s\n" % (time.time(), msg))
+        except OSError:
+            pass
+
+    def _second_adapter(self):
+        # BD address of hci1 if a dedicated second adapter is present, else None.
+        import subprocess
+        try:
+            out = subprocess.check_output(
+                ["hciconfig", "hci1"], timeout=2,
+                stderr=subprocess.DEVNULL).decode()
+        except Exception:
+            return None
+        for tok in out.split():
+            if tok.count(":") == 5:
+                return tok
+        return None
+
     def _map_to_joycon(self, data):
-        # Pro Controller rumble is left(0:4) + right(4:8); a Joy-Con L has one
-        # motor. Forward whichever half is actually driven, duplicated into
-        # both halves so the physical motor is hit regardless of which slot it
-        # reads.
         left, right = data[0:4], data[4:8]
         if left not in self._SILENT:
             active = left
@@ -59,12 +63,9 @@ class RawJoyConRumbleBridge():
             active = bytes([0x00, 0x01, 0x40, 0x40])
         return active + active
 
-    # -- called from the NXBT mainloop; must never block --
     def handle_switch_report(self, report):
         if not report or len(report) < 11 or report[0] != 0xA2:
             return
-        # Output reports 0x01 (subcommand) and 0x10 (rumble) both carry the
-        # 8 raw rumble bytes at offsets 3..10.
         if report[1] not in (0x01, 0x10):
             return
         out = self._map_to_joycon(bytes(report[3:11]))
@@ -72,12 +73,19 @@ class RawJoyConRumbleBridge():
             self._latest = out
 
     def tick(self):
-        # Pacing is owned by the worker thread now; kept for API compatibility.
         pass
 
-    # -- worker thread owns the Joy-Con link --
     def _run(self):
+        inert_logged = False
         while self._running:
+            self._hci1 = self._second_adapter()
+            if not self._hci1:
+                if not inert_logged:
+                    self._log("no hci1: rumble bridge inert (single-adapter)")
+                    inert_logged = True
+                time.sleep(5.0)
+                continue
+            inert_logged = False
             if not self._connect():
                 time.sleep(1.0)
                 continue
@@ -89,14 +97,15 @@ class RawJoyConRumbleBridge():
             self._ctrl = self._connect_channel(0x11)
             self._intr = self._connect_channel(0x13)
             self._enable_vibration()
-            self.logger.info("Raw Joy-Con L2CAP rumble ready")
+            self.logger.info("Raw Joy-Con L2CAP rumble ready (via hci1)")
+            self._log("CONNECTED via hci1 %s" % self._hci1)
             return True
-        except OSError:
+        except OSError as e:
+            self._log("connect fail errno=%s" % e.errno)
             self._close_socks()
             return False
 
     def _pump(self):
-        # Send only when the rumble value changes, plus a low-rate keepalive.
         last_sent = None
         last_ka = 0.0
         try:
@@ -104,7 +113,7 @@ class RawJoyConRumbleBridge():
                 with self._lock:
                     data = self._latest
                 now = time.time()
-                if data != last_sent or (now - last_ka) > 0.2:
+                if data != last_sent or (now - last_ka) > 1.0:
                     self._send_rumble(data)
                     last_sent = data
                     last_ka = now
@@ -126,6 +135,9 @@ class RawJoyConRumbleBridge():
             self._SOL_L2CAP,
             self._L2CAP_LM,
             self._L2CAP_LM_MASTER.to_bytes(4, "little"))
+        # Bind to the dedicated second adapter so all Joy-Con paging/polling
+        # happens on hci1, leaving hci0 entirely for the NXBT<->Switch link.
+        sock.bind((self._hci1, 0))
         sock.connect((self._JOYCON_L, psm))
         return sock
 
@@ -134,8 +146,6 @@ class RawJoyConRumbleBridge():
         return self._timer
 
     def _enable_vibration(self):
-        # Real Joy-Cons ignore rumble until vibration is enabled via subcommand
-        # 0x48 0x01. 0xA2 is the HIDP DATA/output header on the interrupt PSM.
         report = bytes([0xA2, 0x01, self._next_timer()]) \
             + self._NEUTRAL + bytes([0x48, 0x01])
         self._intr.send(report)
