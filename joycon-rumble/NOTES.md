@@ -1,84 +1,148 @@
-# Joy-Con L raw rumble pass-through — findings & state
+# Joy-Con L rumble bridge notes
 
-Goal: forward the rumble the Switch sends to NinBuddy's virtual Pro Controller
-to a **real Joy-Con L** so it physically vibrates, driven from the Raspberry Pi.
+Date: 2026-07-03 JST
+Host: `oppi@raspberrypi.local`
+Repo: `/home/oppi/ninbuddy`
+NXBT runtime files:
 
-Host: `oppi@raspberrypi.local` (Pi with onboard Broadcom BT = `hci0`, UART).
-Bridge lives in the venv nxbt package, not upstream ninbuddy:
-`~/ninbuddy-venv/lib/python3.11/site-packages/nxbt/controller/server.py`
-(`class RawJoyConRumbleBridge`, wired into `ControllerServer.mainloop`).
+- `/home/oppi/ninbuddy-venv/lib/python3.11/site-packages/nxbt/controller/server.py`
+- `/home/oppi/ninbuddy-venv/lib/python3.11/site-packages/nxbt/controller/protocol.py`
 
-Joy-Con L BD address: `BC:74:4B:8B:98:82` (class 0x002508 = gamepad).
-Switch console: `BC:74:4B:C1:B8:BE`.
+Goal: USB Xbox controller drives the virtual Switch Pro Controller through
+NinBuddy/NXBT, while a real Joy-Con L on the Pi is used only as the physical
+rumble actuator.
 
-## SOLVED and proven
+Joy-Con L: `BC:74:4B:8B:98:82`
+Switch: `BC:74:4B:C1:B8:BE`
 
-1. **HIDP header `0xA2`.** Raw-L2CAP output reports to the Joy-Con interrupt
-   PSM (0x13) must be prefixed with `0xA2` (HIDP DATA/Output):
-   `A2 10 <timer> <8 rumble bytes>`. Without it the first byte is misread as
-   the HIDP header and the report is silently ignored.
-2. **Enable vibration.** A real Joy-Con ignores rumble until it receives
-   subcommand `0x48 0x01` (report 0x01: `A2 01 <timer> <8 neutral> 48 01`).
-   The Joy-Con then ACKs (`a1 21 .. 80 48`) and vibrates. (1+2 physically
-   vibrated the Joy-Con in a one-shot manual test.)
-3. **Motor mapping.** Switch rumble is dual-motor (left=bytes[0:4],
-   right=bytes[4:8]), driven in alternating frames. A Joy-Con L has ONE motor,
-   so `_map_to_joycon` picks whichever half is driven and duplicates it.
-4. **Threading.** L2CAP connect blocks for seconds; doing it in NXBT's mainloop
-   froze the Switch link. The bridge owns a worker thread; the mainloop only
-   stores the latest value.
-5. **`frequency=120` -> `66`** in `src/modules/controller.py`. 120 Hz
-   overloaded hci0's TX and made input jittery; 66 Hz is smooth. KEEP THIS.
+## Current fixed configuration
 
-## The wall (confirmed unsolvable on ONE adapter)
+Keep this order:
 
-With the Joy-Con connected (Pi = master of that link), the Switch's inbound
-rumble reports do not reach NXBT (`handle_switch_report` sees nothing).
-Outbound (controller input) is unaffected. Root cause: the Pi is SLAVE to the
-Switch and MASTER to the Joy-Con = a scatternet bridge across two piconets, and
-the onboard Broadcom controller starves the slave-link RX. Verified by btmon:
-zero `ACL Data RX` on the Switch handle while the Joy-Con link is up.
+1. NXBT virtual controller connects to the Switch.
+2. Only after the Switch link is up, the Joy-Con L rumble bridge may connect.
 
-Software mitigations tried, all failed:
-- **Lower send rate / 66 Hz:** even ~5 sends/s to the Joy-Con -> Switch RX = 0.
-- **Sniff mode** on the Joy-Con link: engages but the controller negotiates a
-  useless 15 ms interval; Switch RX still 0.
-- **Role switch** (make the Pi master of the Switch link too -> single
-  piconet): the HCI RX path does reopen, BUT the Switch immediately re-asserts
-  master, so a keeper loop churns role switches endlessly and that churn itself
-  breaks the Switch link. The Switch will not stay a slave. Dead end.
+Do not preconnect the Joy-Con before the virtual controller is connected to the
+Switch. `RawJoyConRumbleBridge.preconnect()` is left as a debug helper, but
+`ControllerServer.run()` must not call it.
 
-## Fix: dedicated second adapter (dongle arrives ~2026-07-04)
+## Proven pieces
 
-Add a USB BT dongle as `hci1`, dedicate it to the Joy-Con (`hci0` stays
-NXBT<->Switch). The shipped `rumble_bridge.py` already does this: it stays
-INERT unless `hciconfig hci1` exists, and binds the Joy-Con L2CAP sockets to
-hci1's address (`sock.bind((hci1_addr, 0))`) before connecting. So with no
-dongle NinBuddy runs as a normal smooth controller and never touches hci0;
-plug in a dongle and rumble should just work (protocol already proven).
+### Switch -> virtual Pro rumble
 
-If a second onboard/USB adapter shows up as `hci1`, verify roles: `hcitool con`
-should show the Switch on hci0 (PERIPHERAL) and the Joy-Con on hci1 (CENTRAL),
-with no shared adapter.
+Game rumble depends on ACKing subcommand `0x48` as a plain ACK:
 
-## Files here
+- Good: `report[14] = 0x80`, `report[15] = 0x48`
+- Bad: `report[14] = 0x82`, `report[15] = 0x48`
 
-- `rumble_bridge.py` — the shipped bridge class (hci1-gated; currently deployed
-  in the venv). Requires, in server.py: `from threading import Thread, Lock`
-  and the `self.rumble.{handle_switch_report,tick,close}` calls in mainloop
-  (already present).
-- `nxbt_server_patched.py` — exact copy of the deployed venv server.py.
-- `apply_patch.py` — swaps the `RawJoyConRumbleBridge` class in a target
-  server.py with the one from a source file.
+The vibrator input byte in the standard input report does not need generated
+ACK modes. Stock NXBT's constant `0xA0` works. The runtime A/B file
+`/tmp/vib_ack_mode` was only an experiment and is no longer used.
 
-Reinstall:
-```
-python3 apply_patch.py \
-  ~/ninbuddy-venv/lib/python3.11/site-packages/nxbt/controller/server.py \
-  rumble_bridge.py
-sudo systemctl restart ninbuddy.service
-```
+Known-good table from testing:
 
-Debug variants used during investigation (verbose /tmp/rumble_debug.log with
-per-second calls/sends telemetry, RAW dumps, a /tmp/jc_off pause flag, sniff,
-and role-switch) are in the scratchpad on the dev machine, not committed.
+| configuration | `0x48` ACK | game rumble |
+| --- | --- | --- |
+| streaming + generated ACK mode 1 | `0x82` | zero |
+| streaming + generated ACK mode 1 | `0x80` | works |
+| stock dedup + constant `0xA0` | `0x80` | works |
+| unmodified NXBT before this work | `0x82` | zero |
+
+### Virtual Pro -> real Joy-Con L
+
+Raw L2CAP reports to the Joy-Con interrupt PSM need the Bluetooth HIDP output
+header:
+
+- Enable vibration: `A2 01 <timer> 0001404000014040 48 01`
+- Rumble only: `A2 10 <timer> <8 rumble bytes>`
+
+The Joy-Con L has one actuator, while Switch/Pro rumble is stereo. For this
+use case we want mono output, so the bridge picks the active 4-byte half and
+duplicates it to both halves before sending to the Joy-Con.
+
+LED command for "1001" is sent as subcommand `0x30 0x09`. The log has shown
+`player lights ack 0x80`, so the command is accepted by the Joy-Con.
+
+### NXBT multiprocessing
+
+NXBT constructs `ControllerServer` in the parent process, then runs
+`ControllerServer.run()` in a forked child process. Threads created before the
+fork stay in the parent and do not see Switch output reports.
+
+Therefore rumble state changes and Joy-Con writes must happen from the child
+mainloop path (`handle_switch_report()` / `tick()`). A connection helper thread
+is OK only when launched lazily from that child after the Switch link exists.
+
+## Current live evidence
+
+At around 23:41 JST the bridge had both links connected:
+
+- `hcitool con` showed the Switch link and the Joy-Con L link both
+  `AUTH ENCRYPT`.
+- Joy-Con input reports `joycon_rx id=0x30` were flowing.
+- `player lights ack 0x80` was observed.
+- Switch game rumble frames arrived and were forwarded:
+  - `raw=d8c83640d8c83640`
+  - `raw=6d036380d8c83640`
+  - `raw=6c006380d8c83640`
+- Counters reached `active=26`, `sent_active=24`, `fails=0`.
+
+After the service was restarted with the fixed `0xA0` protocol code, the Switch
+link came back first and game rumble was visible before the Joy-Con connected:
+
+- `ack enable_vibration report14=0x80 report15=0x48`
+- `nxbt_tx ... vib=0xa0 ... reply=0x48`
+- `raw=0000000002786040` and later many `d8c83640...` frames arrived.
+
+The Joy-Con then needed to be woken with SYNC and a known-MAC HCI page. After
+that, the bridge opened L2CAP, enabled vibration, got LED ACK, and forwarded a
+game rumble frame:
+
+- `joycon connected + vibration enabled`
+- `player lights ack 0x80`
+- `switch active ... raw=d8c83640d8c83640 ... conn=1`
+- `sent rumble d8c83640d8c83640`
+
+Do not prime the ACL with `hcitool cc <Joy-Con MAC>` before opening raw L2CAP.
+That experiment caused repeated `errno=114 Operation already in progress`
+failures after a service restart. The bridge should page the Joy-Con by opening
+the raw control/interrupt L2CAP sockets directly, as in the successful run.
+
+This retires the earlier "single adapter is impossible" note. Single-adapter
+operation is not guaranteed under all timing/load conditions, but it has now
+been shown to pass real game rumble while the Switch and Joy-Con are both
+connected.
+
+## Airtime rules
+
+Do not send Joy-Con rumble every NXBT tick. That made input heavy. The current
+bridge deduplicates identical rumble frames, forwards changes immediately, and
+allows only a slow keepalive for unchanged data.
+
+Do not connect the Joy-Con before the Switch controller link. It complicates
+pairing and can make the user lose the controller link at exactly the wrong
+time.
+
+Keep the virtual controller frequency at `66`, not `120`, when sharing the
+adapter with a Joy-Con rumble sink. Also do not request Joy-Con report mode
+`0x30` for normal rumble bridging: it creates a 60 Hz Joy-Con input stream that
+competes with the Switch link. The bridge now sends report mode `0x3F` once
+after enabling Joy-Con vibration so the Joy-Con remains low-traffic while still
+accepting rumble and LED subcommands.
+
+## Useful runtime files
+
+- `/tmp/rumble_debug.log` - detailed bridge/protocol log
+- `/tmp/jc_off` - pause Joy-Con connection attempts while leaving Switch input up
+- `/tmp/joycon_test_pulse` - debug-only trigger for a short synthetic Joy-Con pulse
+- `/tmp/rumble_capture_on` - start a bounded CSV capture in `/tmp/rumble_capture.log`
+
+## Files in this directory
+
+- `nxbt_server_patched.py` - snapshot of deployed `server.py`
+- `nxbt_protocol_patched.py` - snapshot of deployed `protocol.py`
+- `nxbt-issue-draft.md` / `nxbt-pr-draft.md` - upstream notes
+- `apply_patch.py` - older helper for swapping the bridge class
+
+After editing the venv runtime files, keep the two `nxbt_*_patched.py`
+snapshots in sync so this directory remains a usable work record.

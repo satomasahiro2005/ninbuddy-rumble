@@ -206,10 +206,14 @@ class RawJoyConRumbleBridge():
     def _open(self):
         if self.interrupt is not None:
             return True
+        # Pause flag: stop hammering Joy-Con connects (they can leave zombie
+        # paging state that starves the Switch link -> input lag).
+        if os.path.exists("/tmp/jc_off"):
+            return False
         now = time.time()
         if self.connecting or now < self.next_connect_at:
             return False
-        self.next_connect_at = now + 2.0
+        self.next_connect_at = now + 6.0
         self.connecting = True
         connector = Thread(target=self._connect_async)
         connector.daemon = True
@@ -227,8 +231,7 @@ class RawJoyConRumbleBridge():
             self.interrupt = interrupt
             self.last_write_at = time.time()
             self._enable_vibration(interrupt)
-            self._start_report_mode_retry()
-            self._set_report_mode(interrupt)
+            self._set_low_traffic_report_mode(interrupt)
             self._start_led_retry()
             self._set_player_lights(interrupt)
             self.connect_fail_count = 0
@@ -247,6 +250,8 @@ class RawJoyConRumbleBridge():
                     sock.close()
                 except OSError:
                     pass
+            self.next_connect_at = time.time() + min(
+                20.0, 6.0 + self.connect_fail_count * 2.0)
         finally:
             self.connecting = False
 
@@ -276,18 +281,18 @@ class RawJoyConRumbleBridge():
         if self.led_writes <= 12:
             self._dbg("set player lights 1001 sent=%s" % sent)
 
-    def _set_report_mode(self, sock=None):
+    def _set_low_traffic_report_mode(self, sock=None):
         if sock is None:
             sock = self.interrupt
         if sock is None:
             return
         report = bytes([0xA2, 0x01, self._next_timer()]) \
-            + self._NEUTRAL + bytes([0x03, 0x30])
+            + self._NEUTRAL + bytes([0x03, 0x3F])
         report = report.ljust(49, b"\x00")
         sent = sock.send(report)
         self.report_mode_writes += 1
         if self.report_mode_writes <= 20:
-            self._dbg("set report mode 0x30 sent=%s" % sent)
+            self._dbg("set report mode 0x3F sent=%s" % sent)
 
     def _start_report_mode_retry(self):
         self.report_mode_retry_until = time.time() + 8.0
@@ -350,6 +355,14 @@ class RawJoyConRumbleBridge():
         return fallback
 
     def _write_rumble(self, rumble_bytes):
+        # Airtime throttle: the Joy-Con keeps vibrating its current state, so
+        # re-sending identical frames only steals radio time from the Switch
+        # link (input latency jitter on the shared adapter). Forward changes
+        # immediately, plus a 1 Hz keepalive.
+        rb = bytes(rumble_bytes)
+        if (rb == getattr(self, "last_rumble_bytes", None)
+                and time.time() - getattr(self, "last_write_at", 0.0) < 1.0):
+            return
         if not self._open():
             return
         report = bytes([0xA2, 0x10, self._next_timer()]) + bytes(rumble_bytes)
@@ -471,7 +484,7 @@ class RawJoyConRumbleBridge():
                     and now - self.last_report_mode_at > 0.5):
                 self.last_report_mode_at = now
                 try:
-                    self._set_report_mode()
+                    self._set_low_traffic_report_mode()
                 except OSError as e:
                     self._write_fails += 1
                     self._dbg("report mode write fail errno=%s %s" % (e.errno, e.strerror))
@@ -591,8 +604,6 @@ class ControllerServer():
                 self.lock.acquire()
             try:
                 self.controller.setup()
-                self.state["state"] = "joycon_preconnect"
-                self.rumble.preconnect(timeout=45.0)
 
                 if reconnect_address:
                     try:
@@ -703,7 +714,7 @@ class ControllerServer():
                     self.cached_msg = msg[3:]
                 # Send a blank packet every so often to keep the Switch
                 # from disconnecting from the controller.
-                elif self.tick >= 1:
+                elif self.tick >= 132:
                     itr.sendall(msg)
                     self.tick = 0
             except BlockingIOError:

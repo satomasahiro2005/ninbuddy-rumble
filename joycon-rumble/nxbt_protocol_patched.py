@@ -114,17 +114,9 @@ class ControllerProtocol():
             self.right_stick_centre = [0x16, 0xD8, 0x7D]
 
         self.vibration_enabled = False
-        # Vibrator input report byte (dekuNukem byte 12): the Switch reads it
-        # to decide if the next vibration pattern should be sent. Synced from
-        # the real Joy-Con's ack byte by the rumble bridge before each
-        # get_report(); 0x70 is the idle value until real data arrives.
-        self.vibrator_report = 0x70
-        # Locally generated vibrator ack (see _update_vibrator_ack). Scheme is
-        # selectable at runtime via /tmp/vib_ack_mode for A/B testing.
-        self._vib_frames = 0
-        self._vib_consumed_at = 0.0
-        self._vib_mode = 1
-        self._vib_mode_checked = 0.0
+        # Keep NXBT's stock vibrator input byte. Game rumble is gated by the
+        # 0x48 subcommand ACK being a plain 0x80, not by synthesizing this byte.
+        self.vibrator_report = 0xA0
         self._dbg_subcommands = 0
         self._dbg_reports = 0
         self._last_dbg_vibrator = None
@@ -143,46 +135,8 @@ class ControllerProtocol():
         else:
             self.colour_buttons = colour_buttons
 
-    def _vib_ack_mode(self):
-        now = time.time()
-        if now - self._vib_mode_checked > 2.0:
-            self._vib_mode_checked = now
-            mode = 1
-            try:
-                with open("/tmp/vib_ack_mode") as f:
-                    mode = int(f.read().strip() or "1")
-            except (OSError, ValueError):
-                pass
-            if mode != self._vib_mode:
-                self._dbg("vib_ack_mode %d -> %d" % (self._vib_mode, mode))
-                self._vib_mode = mode
-        return self._vib_mode
-
     def _update_vibrator_ack(self, consumed):
-        # Generate the vibrator input report byte (dekuNukem byte 12, "decides
-        # if next vibration pattern should be sent") from the rumble frames we
-        # actually consumed, emulating a dual-motor Pro Controller. A real
-        # Joy-Con L was observed going 0x30 idle -> 0xB0 after consuming; the
-        # Pro (both motors) analog is 0x70 -> 0xF0.
-        mode = self._vib_ack_mode()
-        now = time.time()
-        if consumed:
-            self._vib_frames += 1
-            self._vib_consumed_at = now
-        if mode == 1:
-            # sticky: ack bit stays set once rumble has ever been consumed
-            self.vibrator_report = 0xF0 if self._vib_frames else 0x70
-        elif mode == 2:
-            # pulse: ack bit set only briefly after each consumed frame
-            recent = (now - self._vib_consumed_at) < 0.05
-            self.vibrator_report = 0xF0 if (self._vib_frames and recent) else 0x70
-        elif mode == 3:
-            # toggle: flip per consumed frame (stop-and-wait style ack)
-            self.vibrator_report = 0xF0 if (self._vib_frames & 1) else 0x70
-        elif mode == 4:
-            # cycle through the values dekuNukem observed on real hardware
-            seq = (0x70, 0xC0, 0xB0)
-            self.vibrator_report = seq[self._vib_frames % 3]
+        self.vibrator_report = 0xA0
 
     def get_report(self):
 
@@ -312,8 +266,7 @@ class ControllerProtocol():
         # Input Report ID
         self.report[1] = 0x21
 
-        # The vibrator byte is synced from the rumble bridge (real Joy-Con
-        # ack) before every get_report(); do not clobber it here.
+        # set_standard_input_report() writes the stock vibrator byte.
 
         self.set_standard_input_report()
 
