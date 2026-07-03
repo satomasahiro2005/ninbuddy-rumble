@@ -14,7 +14,7 @@ last_mobile_ping = 0
 # declare variables for web server
 app = Flask(__name__, static_url_path="/static")
 app.config["SECRET_KEY"] = "ninbuddy"
-socketio = SocketIO(app)
+socketio = SocketIO(app, async_mode="threading")
 
 # return the dashboard page upon visiting the root url
 @app.route("/")

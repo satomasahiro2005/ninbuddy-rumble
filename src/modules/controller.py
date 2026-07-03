@@ -117,7 +117,7 @@ def connect():
     # if ready to connect, update states & connect via nxbt
     if not is_disconnecting:
         update_state("Connecting to console...")
-        device = nx.create_controller(nxbt.PRO_CONTROLLER)
+        device = nx.create_controller(nxbt.PRO_CONTROLLER, frequency=66)
         nx.wait_for_connection(device)
         update_state("Connected to console!")
 
