@@ -39,12 +39,13 @@ as `x80 x48`.
   reports with real HD rumble payloads, verified end-to-end by forwarding
   them to a physical Joy-Con (L) over raw L2CAP and feeling the game
   rumble.
+- **Verified in isolation**: with everything else stock, flipping only this
+  byte took the same game session from zero rumble payloads to ~90 real HD
+  frames in a short play test.
 
-Note: my test rig also streams input reports every tick (instead of the
-`cached_msg` dedup) and generates `vibrator_report` from consumed rumble
-frames instead of the static `0xA0` — details in #NNN. I can follow up with
-separate PRs for those if there's interest; this PR intentionally stays
-minimal.
+Two further real-hardware deviations that improve rumble fidelity (but are
+not required for game rumble) are described in #NNN; happy to follow up
+with separate PRs if there's interest. This PR intentionally stays minimal.
 
 ### Limitations
 

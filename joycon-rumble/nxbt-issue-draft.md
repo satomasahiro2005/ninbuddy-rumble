@@ -33,7 +33,9 @@ nothing.
 
 After changing the ACK to `0x80` and re-pairing, games stream real HD
 rumble data (`0x10` output reports with non-neutral rumble payloads) to the
-virtual controller. I'll open a small PR with the one-byte fix.
+virtual controller. **The fix was verified in isolation**: with everything
+else left stock, this one byte is the difference between "games never send
+rumble" and "games stream rumble". I'll open a small PR with the fix.
 
 ### Environment / repro
 
@@ -46,10 +48,10 @@ virtual controller. I'll open a small PR with the one-byte fix.
 
 ### Related observations
 
-Two more deviations from real-controller behaviour affected rumble delivery
-in my testing; I applied all three together before games rumbled, so the
-individual contributions are only partially isolated. Listing them in case
-they deserve their own issues:
+Two more deviations from real-controller behaviour turned up while
+debugging. Neither is required for game rumble (the 0x48 fix alone was
+verified sufficient), but both improved rumble fidelity/cadence on my rig.
+Listing them in case they deserve their own issues:
 
 1. **Input report dedup starves the output stream.** The mainloop
    suppresses input reports whose payload matches the previous one
@@ -70,5 +72,3 @@ they deserve their own issues:
 - I don't own a real Pro Controller, so I could not capture a genuine Pro
   Controller session for byte-level comparison; reference values come from
   dekuNukem's notes and from sniffing a real Joy-Con (L).
-- The three changes were verified together on my rig; the 0x48 ACK is the
-  only one where stock NXBT contradicts the documented protocol outright.
