@@ -82,12 +82,21 @@ NXBT's docs cover running `bluetoothd` with `--noplugin=input` /
 
    (Find the MAC with `sudo hcitool scan` while holding the Joy-Con's SYNC
    button.)
-2. Within 60 seconds of connecting to the console, hold the Joy-Con's SYNC
-   button until the lights sweep — NinBuddy grabs it and enables its motor.
+2. Once you're connected to the console, open a pairing window and sync
+   the Joy-Con (NinBuddy only pages the Joy-Con on request, because paging
+   a sleeping one disturbs the Switch link):
+
+   ```bash
+   touch /tmp/nxbt_joycon_connect   # 90 s window
+   ```
+
+   then hold the Joy-Con's SYNC button until the lights sweep — NinBuddy
+   grabs it within a few seconds and enables its motor.
 3. Strap the Joy-Con to the back of your controller with **two rubber
-   bands crossed in an X**, pulled tight — rumble will walk it loose
-   otherwise. It nestles between the grips, and the bands pass between the
-   sticks and buttons so nothing on the front is blocked:
+   bands crossed in an X**, pulled tight — the Joy-Con has to stay pressed
+   hard against the shell the whole time, or the vibration energy never
+   transfers into your hands. It nestles between the grips, and the bands
+   pass between the sticks and buttons so nothing on the front is blocked:
 
    ![Joy-Con nestled between the rear grips, held by two crossed rubber bands](assets/joycon_mount_back.jpg)
    ![Front view: the crossed bands avoid the sticks, buttons and D-pad](assets/joycon_mount.jpg)
@@ -95,12 +104,8 @@ NXBT's docs cover running `bluetoothd` with `--noplugin=input` /
 4. Play. The console's HD rumble frames are forwarded raw over L2CAP, and
    you feel them through the Joy-Con's actuator in your hands.
 
-To connect the Joy-Con later than that window (paging a sleeping Joy-Con
-disturbs the Switch link, so NinBuddy doesn't try forever):
-
-```bash
-touch /tmp/nxbt_joycon_connect   # opens a 90 s window; hold SYNC now
-```
+The same trigger works any time the Joy-Con drops off (battery, sleep):
+touch the file, hold SYNC, keep playing.
 
 ### Xbox Elite rear paddles
 
