@@ -84,7 +84,15 @@ NXBT's docs cover running `bluetoothd` with `--noplugin=input` /
    button.)
 2. Within 60 seconds of connecting to the console, hold the Joy-Con's SYNC
    button until the lights sweep — NinBuddy grabs it and enables its motor.
-3. Play. The console's HD rumble frames are forwarded raw over L2CAP.
+3. Strap the Joy-Con to the back of your controller with **two rubber
+   bands crossed in an X**, pulled tight — rumble will walk it loose
+   otherwise. The bands pass between the sticks and buttons, so nothing on
+   the front is blocked:
+
+   ![Joy-Con strapped to the back of an Xbox Elite controller with two crossed rubber bands](assets/joycon_mount.jpg)
+
+4. Play. The console's HD rumble frames are forwarded raw over L2CAP, and
+   you feel them through the Joy-Con's actuator in your hands.
 
 To connect the Joy-Con later than that window (paging a sleeping Joy-Con
 disturbs the Switch link, so NinBuddy doesn't try forever):
@@ -93,11 +101,29 @@ disturbs the Switch link, so NinBuddy doesn't try forever):
 touch /tmp/nxbt_joycon_connect   # opens a 90 s window; hold SYNC now
 ```
 
+### Xbox Elite rear paddles
+
+The four rear paddles (exposed by the Linux `xpad` driver as
+`BTN_TRIGGER_HAPPY5-8`) default to B / A / DPAD_UP / DPAD_DOWN. Remap them
+in `/etc/ninbuddy/paddle_map`:
+
+```ini
+P1=B
+P2=A
+P3=ZL
+P4=NONE
+```
+
+Values are Switch button names (`A B X Y L R ZL ZR DPAD_* PLUS MINUS HOME`),
+`L_STICK_PRESSED` / `R_STICK_PRESSED`, or `NONE` to disable a paddle. The
+file is re-read whenever the controller (re)connects.
+
 ### Runtime knobs
 
 | File | Meaning |
 |---|---|
 | `/etc/nxbt/joycon_mac` | MAC of the rumble Joy-Con (absent = rumble off) |
+| `/etc/ninbuddy/paddle_map` | Elite paddle assignment (see above) |
 | `/tmp/nxbt_joycon_connect` | touch to open a 90 s Joy-Con paging window |
 | `/tmp/nxbt_joycon_off` | exists = never page the Joy-Con |
 | `/tmp/nxbt_input_rate` | input report resend cadence in ticks (default 1 = ~66 Hz, like real hardware) |
