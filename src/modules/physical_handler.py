@@ -15,12 +15,49 @@ paddle_thread_started = False
 
 # Xbox Elite paddles are exposed by Linux xpad as BTN_TRIGGER_HAPPY5-8
 # instead of the ABXY buttons configured in the controller profile.
-elite_paddle_map = {
+# The assignment is configurable via /etc/ninbuddy/paddle_map, one
+# paddle per line (P1..P4 = event codes 708..711):
+#     P1=B
+#     P2=A
+#     P3=DPAD_UP
+#     P4=NONE
+DEFAULT_PADDLE_MAP = {
     708: ["B"],
     709: ["A"],
     710: ["DPAD_UP"],
     711: ["DPAD_DOWN"]
 }
+PADDLE_MAP_FILE = "/etc/ninbuddy/paddle_map"
+
+def load_paddle_map():
+    mapping = dict(DEFAULT_PADDLE_MAP)
+    codes = {"P1": 708, "P2": 709, "P3": 710, "P4": 711}
+    special = {
+        "L_STICK_PRESSED": ["L_STICK", "PRESSED"],
+        "R_STICK_PRESSED": ["R_STICK", "PRESSED"]
+    }
+    try:
+        with open(PADDLE_MAP_FILE) as conf:
+            for line in conf:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip().upper()
+                value = value.strip().upper()
+                if key not in codes:
+                    continue
+                if value in ("", "NONE", "OFF"):
+                    mapping.pop(codes[key], None)
+                elif value in special:
+                    mapping[codes[key]] = special[value]
+                else:
+                    mapping[codes[key]] = [value]
+    except OSError:
+        pass
+    return mapping
+
+elite_paddle_map = dict(DEFAULT_PADDLE_MAP)
 
 PADDLE_DEBUG = False
 
@@ -68,7 +105,9 @@ def get_event_joystick_path():
     return None
 
 def listen_elite_paddles():
-    global paddle_thread_started
+    global paddle_thread_started, elite_paddle_map
+    # re-read the map on every (re)start so edits apply on reconnect
+    elite_paddle_map = load_paddle_map()
     path = get_event_joystick_path()
     if path is None:
         paddle_debug("no event joystick found")
