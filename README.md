@@ -1,5 +1,9 @@
 # NinBuddy — with real HD rumble
 
+<p align="center">
+  <img src="assets/hero.jpg" width="640" alt="Playing the Switch with an Xbox Elite controller — a Joy-Con is strapped to its back with rubber bands, delivering the game's HD rumble">
+</p>
+
 Play your Nintendo Switch with an **Xbox or PlayStation controller** (or your
 phone's browser) through a Raspberry Pi — and feel the game's **real HD
 rumble** through a physical Joy-Con, all on the Pi's single onboard
@@ -98,8 +102,10 @@ NXBT's docs cover running `bluetoothd` with `--noplugin=input` /
    transfers into your hands. It nestles between the grips, and the bands
    pass between the sticks and buttons so nothing on the front is blocked:
 
-   ![Joy-Con nestled between the rear grips, held by two crossed rubber bands](assets/joycon_mount_back.jpg)
-   ![Front view: the crossed bands avoid the sticks, buttons and D-pad](assets/joycon_mount.jpg)
+   <p>
+     <img src="assets/joycon_mount_back.jpg" width="390" alt="Joy-Con nestled between the rear grips, held by two crossed rubber bands">
+     <img src="assets/joycon_mount.jpg" width="390" alt="Front view: the crossed bands avoid the sticks, buttons and D-pad">
+   </p>
 
 4. Play. The console's HD rumble frames are forwarded raw over L2CAP, and
    you feel them through the Joy-Con's actuator in your hands.
