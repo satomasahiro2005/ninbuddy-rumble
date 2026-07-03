@@ -1,110 +1,127 @@
+# NinBuddy — with real HD rumble
 
-<a name="readme-top"></a>
+Play your Nintendo Switch with an **Xbox or PlayStation controller** (or your
+phone's browser) through a Raspberry Pi — and feel the game's **real HD
+rumble** through a physical Joy-Con, all on the Pi's single onboard
+Bluetooth adapter.
 
-<!-- PROJECT LOGO -->
-<br />
-<div align="center">
-  <a href="https://github.com/jotslo/ninbuddy">
-    <img src="assets/nb_thumbnail.png" alt="Logo" width="240" height="80">
-  </a>
+This is a maintained continuation of
+[jotslo/ninbuddy](https://github.com/jotslo/ninbuddy) (now archived), built
+on [Brikwerk/nxbt](https://github.com/Brikwerk/nxbt). Along the way it fixed
+the NXBT protocol bug that prevented **every** emulated controller from
+receiving game rumble — see
+[Brikwerk/nxbt#198](https://github.com/Brikwerk/nxbt/issues/198) /
+[PR #199](https://github.com/Brikwerk/nxbt/pull/199).
 
-<h3 align="center">NinBuddy - Play with any controller</h3>
+## What you get
 
-  <p align="center">
-    Connect your favourite game controller to a Nintendo Switch.
-    <br />
-    Supports <b>Xbox</b> & <b>PlayStation</b> controllers, and your <b>mobile</b> web browser.
-    <br />
-    <br />
-    <a href="https://github.com/jotslo/ninbuddy/issues">Report Bug</a>
-    ·
-    <a href="https://github.com/jotslo/ninbuddy/issues">Request Feature</a>
-    ·
-    <a href="https://twitter.com/jotslo/status/1666946256067805184">Watch Demo</a>
-  </p>
-  <br>
-  <br>
-  <img src="assets/nb_demo.png" alt="Logo">
-  <br>
-  <br>
-  <h3 align="center">Install via Terminal:</h3>
-  
-  ```
-  curl -L -O nb.jotslo.com/get && sudo python3 get
-  ```
-  *Requires a Raspberry Pi w/ Bluetooth & Python 3.9 or higher*
-</div>
+- Xbox / PlayStation controller → Switch, no PC or internet needed
+- Phone browser as a controller (built-in web UI)
+- **Game HD rumble forwarded to a real Joy-Con** you hold or set on your
+  controller — actual LRA haptics, not an ERM approximation
+- Xbox Elite rear paddles mapped to buttons
+- Reconnects to your console directly after the first pairing — no more
+  Change Grip/Order screen on every start
+- Survives USB blips: a flaky cable pauses input for a moment instead of
+  destroying the session
 
-   
+## Requirements
 
+- Raspberry Pi with built-in Bluetooth (developed on a Pi 5), Python 3.9+
+- A USB game controller (Xbox Series / Elite 2 / PS4 tested)
+- Optional, for rumble: a spare Joy-Con (L or R)
 
-<br />
+## Install
 
-## How it works
-1. Start the software. By default, NinBuddy will start when your Pi boots.
-2. Plug in an Xbox or PlayStation controller to your Raspberry Pi via USB.
-3. Go to `Change Grip/Order` on your Nintendo Switch.
-4. Wait for the controller to connect, and play!
+```bash
+sudo apt install python3-venv python3-dev libdbus-1-dev
+python3 -m venv ~/ninbuddy-venv
+~/ninbuddy-venv/bin/pip install pygame flask flask-socketio
+# NXBT with the rumble fixes (until merged upstream):
+~/ninbuddy-venv/bin/pip install git+https://github.com/satomasahiro2005/nxbt.git@rumble-passthrough
+git clone https://github.com/satomasahiro2005/ninbuddy.git ~/ninbuddy
+```
 
-**Connected to Wi-Fi?** NinBuddy shows a URL in the terminal. Visit this on your mobile device to play!
+Run with `sudo ~/ninbuddy-venv/bin/python ~/ninbuddy/src/server.py`, or as a
+systemd service:
 
-<br />
+```ini
+# /etc/systemd/system/ninbuddy.service
+[Unit]
+Description=NinBuddy Switch controller bridge
+After=bluetooth.service
+[Service]
+ExecStartPre=/bin/sh -c 'bluetoothctl power on || true'
+ExecStart=/home/pi/ninbuddy-venv/bin/python /home/pi/ninbuddy/src/server.py
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+```
 
-## Core Features
-- Use an Xbox & PlayStation controller on your Nintendo Switch, without needing a PC or internet connection
-- Use your mobile phone's web browser as a game controller
-  - NinBuddy automatically starts a web server, which you can connect to from your mobile device & use an on-screen controller
-  - Presses are registered in zones rather than on the exact buttons/joysticks, allowing for a decent gameplay experience
-- NinBuddy can be configured to automatically start on boot
-  - Turn on your Raspberry Pi on-the-go, plug in a controller via USB and you'll automatically be connected to your nearby Switch!
-- Play pass-to-play games more easily with mobile
-  - While NinBuddy can only act as 1 game controller, multiple phones can control your game simultaneously
+NXBT needs to own the adapter, so the stock input plugin must not grab it —
+NXBT's docs cover running `bluetoothd` with `--noplugin=input` /
+`--compat`.
 
-<br />
+## Usage
 
-## Automatic Installation (Recommended)
-Simply paste the <a href="#readme-top">command at the top of the page</a> to install NinBuddy.
+1. Plug in your USB controller.
+2. On the Switch, open **Change Grip/Order**. The virtual Pro Controller
+   pairs and you can play. (From the second start onwards NinBuddy dials
+   the console directly and this screen is not needed.)
+3. On Wi-Fi, the terminal prints a URL — open it on your phone to use the
+   touch controller.
 
-## Manual Installation (Not Recommended)
-- To manually install NinBuddy, download and extract the <a href="https://github.com/jotslo/ninbuddy/releases/tag/v1.0.0">latest release</a>.
-- Use `pip install pygame` to install PyGame
-- Use `pip install git+https://github.com/Brikwerk/nxbt.git@086293d33d8a64fdbd2b58fa15197c5b66e0ff7b` to install NXBT
+### Rumble through a real Joy-Con
 
-<br />
+1. Tell NinBuddy which Joy-Con is yours (once):
 
-<!-- CONTRIBUTING -->
-## Contributing
+   ```bash
+   sudo mkdir -p /etc/nxbt
+   echo "XX:XX:XX:XX:XX:XX" | sudo tee /etc/nxbt/joycon_mac
+   ```
 
-Any contributions are greatly appreciated. Before contributing, please open an issue to discuss your idea.
+   (Find the MAC with `sudo hcitool scan` while holding the Joy-Con's SYNC
+   button.)
+2. Within 60 seconds of connecting to the console, hold the Joy-Con's SYNC
+   button until the lights sweep — NinBuddy grabs it and enables its motor.
+3. Play. The console's HD rumble frames are forwarded raw over L2CAP.
 
-After your idea has been approved:
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+To connect the Joy-Con later than that window (paging a sleeping Joy-Con
+disturbs the Switch link, so NinBuddy doesn't try forever):
 
-<br />
+```bash
+touch /tmp/nxbt_joycon_connect   # opens a 90 s window; hold SYNC now
+```
 
-<!-- LICENSE -->
+### Runtime knobs
+
+| File | Meaning |
+|---|---|
+| `/etc/nxbt/joycon_mac` | MAC of the rumble Joy-Con (absent = rumble off) |
+| `/tmp/nxbt_joycon_connect` | touch to open a 90 s Joy-Con paging window |
+| `/tmp/nxbt_joycon_off` | exists = never page the Joy-Con |
+| `/tmp/nxbt_input_rate` | input report resend cadence in ticks (default 1 = ~66 Hz, like real hardware) |
+| `/etc/nxbt/last_switch` | remembered console address (written automatically) |
+
+## How the rumble works (short version)
+
+The console gates application rumble on a correct reply to the Enable
+Vibration subcommand (`0x48`): stock NXBT answered with a malformed ACK, so
+system sounds rumbled but games never did (one byte, `0x82`→`0x80`,
+[#198](https://github.com/Brikwerk/nxbt/issues/198)). With that fixed, the
+console streams HD rumble to the virtual Pro Controller; NinBuddy remaps
+the dual-motor frames for the Joy-Con's single motor and writes them to its
+interrupt channel with the HIDP header and the motor-enable handshake a
+real Joy-Con expects. Full protocol notes live in
+[`joycon-rumble/NOTES.md`](joycon-rumble/NOTES.md).
+
+## Credits
+
+- [jotslo](https://github.com/jotslo) — the original NinBuddy
+- [Brikwerk](https://github.com/brikwerk) — NXBT
+- [dekuNukem](https://github.com/dekuNukem/Nintendo_Switch_Reverse_Engineering)
+  — Switch controller protocol reverse engineering
+
 ## License
-Distributed under the MIT License. See `LICENSE` for more information.
 
-<br /> 
-
-<!-- CONTACT -->
-## Contact
-Josh Lotriet - [josh@jotslo.com](mailto:josh@jotslo.com)
-
-<br />
-
-## Acknowledgements
-- NinBuddy is built with the [NXBT API](https://github.com/brikwerk/nxbt) by [Brikwerk](https://github.com/brikwerk)
-- README file derived from [Best-README-Template](https://github.com/othneildrew/Best-README-Template) by [othneildrew](https://github.com/othneildrew)
-- <a href="https://www.flaticon.com/free-icons/game-boy-advance" title="game boy advance icons">Game boy advance icons created by Freepik - Flaticon</a>
-- <a href="https://www.flaticon.com/free-icons/iphone" title="iphone icons">Iphone icons created by Maxim Basinski Premium - Flaticon</a>
-
-
-
-
-
+MIT — see [LICENSE](LICENSE). Original NinBuddy © jotslo.
