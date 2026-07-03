@@ -145,16 +145,12 @@ def set_input():
         # remove first value from queue
         queue.pop(0)
 
-    # push the packet across processes only when something changed
-    # (plus a 0.5 s refresh as a safety net); the unconditional 240 Hz
-    # Manager IPC push was the main CPU cost of this process
-    global packet_dirty, _last_push
+    # update packet with new joystick values
+    # NOTE: the push must stay unconditional -- gating it on packet changes
+    # breaks held buttons downstream (observed on air: button frames lasted
+    # a single report). Optimize elsewhere.
     _log_button_flips()
-    now = time.time()
-    if packet_dirty or now - _last_push > 0.5:
-        packet_dirty = False
-        _last_push = now
-        nx.set_controller_input(device, packet)
+    nx.set_controller_input(device, packet)
 
 # connect new generated controller to switch
 def connect():
