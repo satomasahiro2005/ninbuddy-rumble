@@ -86,10 +86,11 @@ NXBT's docs cover running `bluetoothd` with `--noplugin=input` /
    button until the lights sweep — NinBuddy grabs it and enables its motor.
 3. Strap the Joy-Con to the back of your controller with **two rubber
    bands crossed in an X**, pulled tight — rumble will walk it loose
-   otherwise. The bands pass between the sticks and buttons, so nothing on
-   the front is blocked:
+   otherwise. It nestles between the grips, and the bands pass between the
+   sticks and buttons so nothing on the front is blocked:
 
-   ![Joy-Con strapped to the back of an Xbox Elite controller with two crossed rubber bands](assets/joycon_mount.jpg)
+   ![Joy-Con nestled between the rear grips, held by two crossed rubber bands](assets/joycon_mount_back.jpg)
+   ![Front view: the crossed bands avoid the sticks, buttons and D-pad](assets/joycon_mount.jpg)
 
 4. Play. The console's HD rumble frames are forwarded raw over L2CAP, and
    you feel them through the Joy-Con's actuator in your hands.
