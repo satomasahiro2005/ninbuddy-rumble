@@ -164,9 +164,32 @@ def connect():
     # if ready to connect, update states & connect via nxbt
     if not is_disconnecting:
         update_state("Connecting to console...")
-        device = nx.create_controller(nxbt.PRO_CONTROLLER, frequency=66)
+
+        # Reconnect directly to the last console when one is remembered:
+        # this skips the Change Grip/Order registration screen entirely.
+        # NXBT falls back to normal pairing if the reconnect fails.
+        reconnect_address = None
+        try:
+            with open("/etc/nxbt/last_switch") as f:
+                value = f.read().strip().upper()
+            if len(value) == 17 and value.count(":") == 5:
+                reconnect_address = value
+        except OSError:
+            pass
+
+        device = nx.create_controller(nxbt.PRO_CONTROLLER, frequency=66,
+                                      reconnect_address=reconnect_address)
         nx.wait_for_connection(device)
         update_state("Connected to console!")
+
+        # remember this console for the next start
+        try:
+            address = nx.state[device]["last_connection"]
+            if address:
+                with open("/etc/nxbt/last_switch", "w") as f:
+                    f.write(str(address))
+        except (KeyError, TypeError, OSError):
+            pass
 
 # attempt to disconnect from switch, if possible
 def attempt_disconnect():
