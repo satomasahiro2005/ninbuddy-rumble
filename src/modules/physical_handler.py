@@ -94,6 +94,9 @@ def listen_elite_paddles():
                 data = os.read(fd, event_size * 32)
             except BlockingIOError:
                 continue
+            except OSError:
+                # device vanished (USB blip); thread restarts on reconnect
+                break
 
             for offset in range(0, len(data) // event_size * event_size, event_size):
                 _, _, event_type, code, value = struct.unpack(
@@ -105,7 +108,10 @@ def listen_elite_paddles():
                 paddle_debug(f"event code={code} map={elite_paddle_map[code]} value={value}")
                 controller.update_packet(elite_paddle_map[code], value != 0)
     finally:
-        os.close(fd)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
         paddle_thread_started = False
 
 def start_paddle_listener():
@@ -173,12 +179,13 @@ def listen():
                 
                 # if physical controller is removed, attempt to disconnect from switch
                 elif event.type == pygame.JOYDEVICEREMOVED and pygame.joystick.get_count() == 0:
+                    # USB blip: keep the Switch connection alive and go
+                    # neutral; input resumes as soon as the pad re-enumerates
+                    # (a full disconnect would force re-registration).
                     controller.name = None
                     joystick.quit()
                     controller.is_physical_connected = False
-                    disconn = Thread(target=controller.attempt_disconnect)
-                    disconn.daemon = True
-                    disconn.start()
+                    controller.release_all()
                 
                 # if controller button is pressed, update packet accordingly
                 elif event.type == pygame.JOYBUTTONDOWN:

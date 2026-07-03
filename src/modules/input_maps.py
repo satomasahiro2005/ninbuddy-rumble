@@ -143,5 +143,7 @@ def axis_move(joystick):
     # for each axis, if it's not ZL/ZR button press, update joystick accordingly
     for axis in axis_map:
         if "Z" not in axis_map[axis][0]:
+            # quantize to integers so analog jitter does not count as a
+            # packet change (the switch stick range is -100..100 anyway)
             controller.update_packet(axis_map[axis][:2],
-                joystick.get_axis(axis) * axis_map[axis][2])
+                round(joystick.get_axis(axis) * axis_map[axis][2]))

@@ -59,15 +59,35 @@ def update_state(new_state):
 
 # update packet with new joystick values
 def update_packet(location, value):
-    global packet
+    global packet, packet_dirty
 
-    # if only one location, update packet with value
+    # write only on real changes so set_input() can skip the expensive
+    # cross-process push when nothing moved
     if len(location) == 1:
-        packet[location[0]] = value
-    
+        if packet.get(location[0]) != value:
+            packet[location[0]] = value
+            packet_dirty = True
+
     # otherwise, access nested dict and update with value
     else:
-        packet[location[0]][location[1]] = value
+        nested = packet[location[0]]
+        if nested.get(location[1]) != value:
+            nested[location[1]] = value
+            packet_dirty = True
+
+# release every input (used when the physical pad drops off USB so the
+# virtual controller goes neutral instead of holding stale buttons)
+def release_all():
+    global packet
+    for key, value in packet.items():
+        if isinstance(value, dict):
+            for sub in value:
+                value[sub] = 0 if sub in ("X_VALUE", "Y_VALUE") else False
+        elif isinstance(value, bool):
+            packet[key] = False
+
+packet_dirty = True
+_last_push = 0.0
 
 # add packet data to queue to prevent packet loss
 def add_to_queue(location, value):
@@ -83,6 +103,25 @@ def add_to_queue(location, value):
     
     # otherwise, add value to queue
     packet_queue[location]["queue"] += [value]
+
+
+# --- temporary diagnostics: log button state flips ---
+import time as _t
+_prev_buttons = {}
+_BTN_KEYS = ("A", "B", "X", "Y", "L", "R", "ZL", "ZR",
+             "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
+             "PLUS", "MINUS", "HOME")
+def _log_button_flips():
+    global _prev_buttons
+    try:
+        for k in _BTN_KEYS:
+            v = bool(packet.get(k))
+            if _prev_buttons.get(k) is not None and v != _prev_buttons[k]:
+                with open("/tmp/ninbuddy_input.log", "a") as f:
+                    f.write("%.4f %s -> %s" % (_t.time(), k, v) + chr(10))
+            _prev_buttons[k] = v
+    except Exception:
+        pass
 
 # set input packet to values in packet
 def set_input():
@@ -101,19 +140,31 @@ def set_input():
 
         # otherwise, update packet and last change
         packet_queue[button]["last_change"] = time.time()
-        packet[button] = queue[0]
+        update_packet([button], queue[0])
 
         # remove first value from queue
         queue.pop(0)
 
-    # update packet with new joystick values
-    # physical controller does not queue as connection is wired, so loss is unlikely
-    nx.set_controller_input(device, packet)
+    # push the packet across processes only when something changed
+    # (plus a 0.5 s refresh as a safety net); the unconditional 240 Hz
+    # Manager IPC push was the main CPU cost of this process
+    global packet_dirty, _last_push
+    _log_button_flips()
+    now = time.time()
+    if packet_dirty or now - _last_push > 0.5:
+        packet_dirty = False
+        _last_push = now
+        nx.set_controller_input(device, packet)
 
 # connect new generated controller to switch
 def connect():
     global joystick, state, device, input_devices, is_disconnecting
     
+    # already holding a virtual controller (e.g. the pad re-enumerated
+    # after a USB blip): keep using it instead of creating a second one
+    if device != None:
+        return
+
     # if ready to connect, update states & connect via nxbt
     if not is_disconnecting:
         update_state("Connecting to console...")
