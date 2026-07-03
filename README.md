@@ -39,7 +39,7 @@ python3 -m venv ~/ninbuddy-venv
 ~/ninbuddy-venv/bin/pip install pygame flask flask-socketio
 # NXBT with the rumble fixes (until merged upstream):
 ~/ninbuddy-venv/bin/pip install git+https://github.com/satomasahiro2005/nxbt.git@rumble-passthrough
-git clone https://github.com/satomasahiro2005/ninbuddy.git ~/ninbuddy
+git clone https://github.com/satomasahiro2005/ninbuddy-rumble.git ~/ninbuddy
 ```
 
 Run with `sudo ~/ninbuddy-venv/bin/python ~/ninbuddy/src/server.py`, or as a
