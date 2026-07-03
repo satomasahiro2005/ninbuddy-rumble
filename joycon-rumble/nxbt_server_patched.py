@@ -585,6 +585,19 @@ class ControllerServer():
         # Initial reconnection overload protection
         self.tick = 1
         self.cached_msg = ''
+        self._input_rate = 1
+        self._input_rate_checked = 0.0
+
+    def _input_rate_ticks(self):
+        now = time.perf_counter()
+        if now - self._input_rate_checked > 1.0:
+            self._input_rate_checked = now
+            try:
+                with open('/tmp/input_rate') as f:
+                    self._input_rate = max(1, min(132, int(f.read().strip())))
+            except (OSError, ValueError):
+                self._input_rate = 1
+        return self._input_rate
 
     def run(self, reconnect_address=None):
         """Runs the mainloop of the controller server.
@@ -712,9 +725,11 @@ class ControllerServer():
                 if msg[3:] != self.cached_msg:
                     itr.sendall(msg)
                     self.cached_msg = msg[3:]
-                # Send a blank packet every so often to keep the Switch
-                # from disconnecting from the controller.
-                elif self.tick >= 132:
+                # Resend the current report at a steady cadence so the
+                # console keeps a rumble/output stream going (a real controller
+                # streams ~60 Hz). Rate is runtime-tunable in ticks via
+                # /tmp/input_rate (default 132 = stock keepalive ~2 s).
+                elif self.tick >= self._input_rate_ticks():
                     itr.sendall(msg)
                     self.tick = 0
             except BlockingIOError:
