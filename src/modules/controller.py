@@ -105,24 +105,6 @@ def add_to_queue(location, value):
     packet_queue[location]["queue"] += [value]
 
 
-# --- temporary diagnostics: log button state flips ---
-import time as _t
-_prev_buttons = {}
-_BTN_KEYS = ("A", "B", "X", "Y", "L", "R", "ZL", "ZR",
-             "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
-             "PLUS", "MINUS", "HOME")
-def _log_button_flips():
-    global _prev_buttons
-    try:
-        for k in _BTN_KEYS:
-            v = bool(packet.get(k))
-            if _prev_buttons.get(k) is not None and v != _prev_buttons[k]:
-                with open("/tmp/ninbuddy_input.log", "a") as f:
-                    f.write("%.4f %s -> %s" % (_t.time(), k, v) + chr(10))
-            _prev_buttons[k] = v
-    except Exception:
-        pass
-
 # set input packet to values in packet
 def set_input():
     # iterate through packet queue to update packet
@@ -149,7 +131,6 @@ def set_input():
     # NOTE: the push must stay unconditional -- gating it on packet changes
     # breaks held buttons downstream (observed on air: button frames lasted
     # a single report). Optimize elsewhere.
-    _log_button_flips()
     nx.set_controller_input(device, packet)
 
 # connect new generated controller to switch
