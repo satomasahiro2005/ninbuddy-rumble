@@ -138,7 +138,7 @@ file is re-read whenever the controller (re)connects.
 | `/etc/ninbuddy/paddle_map` | Elite paddle assignment (see above) |
 | `/tmp/nxbt_joycon_connect` | touch to open a 90 s Joy-Con paging window |
 | `/tmp/nxbt_joycon_off` | exists = never page the Joy-Con |
-| `/tmp/nxbt_input_rate` | input report resend cadence in ticks (default 1 = ~66 Hz, like real hardware) |
+| `/tmp/nxbt_input_rate` | input report resend cadence in ticks (default 1 = ~120 Hz, like real hardware) |
 | `/etc/nxbt/last_switch` | remembered console address (written automatically) |
 
 ## How the rumble works (short version)

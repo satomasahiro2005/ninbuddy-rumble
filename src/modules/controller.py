@@ -158,7 +158,7 @@ def connect():
         except OSError:
             pass
 
-        device = nx.create_controller(nxbt.PRO_CONTROLLER, frequency=66,
+        device = nx.create_controller(nxbt.PRO_CONTROLLER, frequency=120,
                                       reconnect_address=reconnect_address)
         nx.wait_for_connection(device)
         update_state("Connected to console!")

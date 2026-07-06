@@ -248,6 +248,6 @@ def listen():
                 # prevents software from crashing
                 pass
 
-        # The generated Switch controller runs at 66Hz; pacing this loop keeps
+        # The generated Switch controller runs at 120Hz; pacing this loop keeps
         # CPU use down without adding meaningful controller latency.
         time.sleep(1 / 240)
